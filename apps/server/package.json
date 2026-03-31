@@ -1,0 +1,31 @@
+{
+  "name": "@superwa/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@superwa/shared": "workspace:*",
+    "better-sqlite3": "^11",
+    "cors": "^2",
+    "drizzle-orm": "^0.38",
+    "express": "^5",
+    "playwright": "^1",
+    "ws": "^8",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7",
+    "@types/cors": "^2",
+    "@types/express": "^5",
+    "@types/ws": "^8",
+    "drizzle-kit": "^0.30",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}
