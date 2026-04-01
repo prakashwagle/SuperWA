@@ -6,3 +6,4 @@ dist/
 *.sqlite
 .env
 .env.local
+.wa-session/

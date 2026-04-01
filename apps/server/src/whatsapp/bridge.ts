@@ -1,9 +1,14 @@
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { ExtractedData } from "./types.js";
 import { extractChats, extractMessages } from "./extractor.js";
+import { join } from "path";
+
+// Persist browser session data so QR scan survives server restarts
+const USER_DATA_DIR = join(process.cwd(), ".wa-session");
 
 export class WhatsAppBridge {
   private browser: Browser | null = null;
+  private context: BrowserContext | null = null;
   private page: Page | null = null;
   private syncInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -13,18 +18,18 @@ export class WhatsAppBridge {
   async launch(): Promise<void> {
     if (this.browser) return;
 
-    this.browser = await chromium.launch({
+    // Use launchPersistentContext to persist session (cookies, localStorage)
+    // This means QR scan only needs to happen once
+    this.context = await chromium.launchPersistentContext(USER_DATA_DIR, {
       headless: false, // Need visible browser for QR scan
       args: ["--disable-blink-features=AutomationControlled"],
-    });
-
-    const context = await this.browser.newContext({
       userAgent:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       viewport: { width: 1280, height: 800 },
     });
 
-    this.page = await context.newPage();
+    // launchPersistentContext doesn't expose browser directly
+    this.page = this.context.pages()[0] ?? await this.context.newPage();
     await this.page.goto("https://web.whatsapp.com", {
       waitUntil: "domcontentloaded",
     });
@@ -114,10 +119,15 @@ export class WhatsAppBridge {
     return this.page !== null;
   }
 
+  getPage(): Page | null {
+    return this.page;
+  }
+
   async close(): Promise<void> {
     this.stopPeriodicSync();
-    await this.browser?.close();
+    await this.context?.close();
     this.browser = null;
+    this.context = null;
     this.page = null;
   }
 }

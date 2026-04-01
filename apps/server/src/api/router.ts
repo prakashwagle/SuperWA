@@ -19,6 +19,159 @@ export function createApiRouter(db: AppDatabase, bridge: WhatsAppBridge): Router
     }
   });
 
+  // Debug endpoint — inspect a single chat row's inner structure
+  router.get("/whatsapp/debug-row", async (_req, res) => {
+    const page = bridge.getPage();
+    if (!page) return res.status(400).json({ error: "Bridge not launched" });
+
+    try {
+      const rowInfo = await page.evaluate(() => {
+        const grid = document.querySelector('[aria-label="Chat list"][role="grid"]');
+        if (!grid) return { error: "No chat list grid found" };
+
+        const rows = grid.querySelectorAll('[role="row"]');
+        if (rows.length === 0) return { error: "No rows found", gridChildCount: grid.children.length };
+
+        // Get detailed info from first 3 rows
+        const rowDetails = Array.from(rows).slice(0, 3).map((row, i) => {
+          // Get all span elements with title attribute
+          const titledSpans = Array.from(row.querySelectorAll("span[title]")).map(s => ({
+            title: s.getAttribute("title"),
+            textContent: s.textContent?.substring(0, 100),
+            parentClass: s.parentElement?.className?.substring(0, 50),
+          }));
+
+          // Get the gridcell
+          const gridcell = row.querySelector('[role="gridcell"]');
+
+          // All text nodes via innerText
+          const innerText = row.textContent?.substring(0, 200);
+
+          // Unread badge — look for spans with just a number
+          const allSpans = Array.from(row.querySelectorAll("span"));
+          const badgeSpans = allSpans.filter(s => {
+            const t = s.textContent?.trim() ?? "";
+            return /^\d+$/.test(t) && t.length <= 4;
+          }).map(s => ({
+            text: s.textContent,
+            className: s.className?.substring(0, 80),
+            ariaHidden: s.getAttribute("aria-hidden"),
+          }));
+
+          // Group icon — look for data-icon attribute
+          const dataIcons = Array.from(row.querySelectorAll("[data-icon]")).map(el => ({
+            dataIcon: el.getAttribute("data-icon"),
+            tag: el.tagName,
+          }));
+
+          return {
+            index: i,
+            outerHTML: row.innerHTML.substring(0, 1500),
+            titledSpans,
+            badgeSpans,
+            dataIcons,
+            innerText,
+            hasGridcell: !!gridcell,
+          };
+        });
+
+        return { totalRows: rows.length, rowDetails };
+      });
+
+      res.json(rowInfo);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Debug endpoint — inspect WhatsApp Web DOM to fix selectors
+  router.get("/whatsapp/debug", async (_req, res) => {
+    const page = bridge.getPage();
+    if (!page) return res.status(400).json({ error: "Bridge not launched" });
+
+    try {
+      // Take screenshot
+      const screenshot = await page.screenshot({ fullPage: false });
+      const screenshotB64 = screenshot.toString("base64");
+
+      // Dump DOM structure around the chat list area
+      const domInfo = await page.evaluate(() => {
+        const info: Record<string, unknown> = {};
+
+        // Find all elements with aria-label
+        const ariaLabels = Array.from(document.querySelectorAll("[aria-label]"))
+          .slice(0, 50)
+          .map((el) => ({
+            tag: el.tagName,
+            ariaLabel: el.getAttribute("aria-label"),
+            role: el.getAttribute("role"),
+            childCount: el.children.length,
+          }));
+        info.ariaLabels = ariaLabels;
+
+        // Find all elements with role="listitem" or role="row" or role="list"
+        const roleElements = Array.from(
+          document.querySelectorAll('[role="listitem"], [role="row"], [role="list"], [role="grid"], [role="listbox"]')
+        )
+          .slice(0, 30)
+          .map((el) => ({
+            tag: el.tagName,
+            role: el.getAttribute("role"),
+            ariaLabel: el.getAttribute("aria-label"),
+            className: el.className.substring(0, 100),
+            childCount: el.children.length,
+            textPreview: el.textContent?.substring(0, 80),
+          }));
+        info.roleElements = roleElements;
+
+        // Find all data-testid attributes
+        const testIds = Array.from(document.querySelectorAll("[data-testid]"))
+          .slice(0, 80)
+          .map((el) => ({
+            testId: el.getAttribute("data-testid"),
+            tag: el.tagName,
+            ariaLabel: el.getAttribute("aria-label"),
+          }));
+        info.testIds = testIds;
+
+        // Look for the pane/side panel that contains the chat list
+        const paneSide = document.querySelector('#pane-side');
+        if (paneSide) {
+          info.paneSide = {
+            found: true,
+            childCount: paneSide.children.length,
+            firstChildTag: paneSide.children[0]?.tagName,
+            firstChildRole: paneSide.children[0]?.getAttribute("role"),
+            html: paneSide.innerHTML.substring(0, 2000),
+          };
+        } else {
+          info.paneSide = { found: false };
+        }
+
+        // Check for any div with "chat" in aria-label (case-insensitive)
+        const chatRelated = Array.from(document.querySelectorAll("*"))
+          .filter((el) => {
+            const label = el.getAttribute("aria-label")?.toLowerCase() ?? "";
+            return label.includes("chat");
+          })
+          .slice(0, 20)
+          .map((el) => ({
+            tag: el.tagName,
+            ariaLabel: el.getAttribute("aria-label"),
+            role: el.getAttribute("role"),
+            childCount: el.children.length,
+          }));
+        info.chatRelated = chatRelated;
+
+        return info;
+      });
+
+      res.json({ domInfo, screenshot: `data:image/png;base64,${screenshotB64}` });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   router.get("/whatsapp/qr", async (_req, res) => {
     const qr = await bridge.getQrDataUrl();
     res.json({ qr });
