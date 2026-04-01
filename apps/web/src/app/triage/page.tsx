@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { chats as chatsApi, type ChatRow } from "../../lib/api";
 
 const categories = ["personal", "business", "group", "channel", "spam", "uncategorized"] as const;
@@ -26,14 +26,38 @@ export default function TriagePage() {
 
   const current = chatList[currentIndex];
 
-  const handleAction = async (status: string, category?: string) => {
-    if (!current) return;
-    await chatsApi.triage(current.id, {
+  const handleAction = useCallback(async (status: string, category?: string) => {
+    const chat = chatList[currentIndex];
+    if (!chat) return;
+    await chatsApi.triage(chat.id, {
       status,
       ...(category ? { category } : {}),
     });
     setCurrentIndex((i) => i + 1);
-  };
+  }, [chatList, currentIndex]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      // Ignore if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.key) {
+        case "d": handleAction("done"); break;
+        case "r": handleAction("need_reply"); break;
+        case "s": handleAction("snoozed"); break;
+        case "f": handleAction("fyi"); break;
+        // Category shortcuts (with Shift)
+        case "1": handleAction("inbox", "personal"); break;
+        case "2": handleAction("inbox", "business"); break;
+        case "3": handleAction("inbox", "group"); break;
+        case "4": handleAction("inbox", "channel"); break;
+        case "5": handleAction("inbox", "spam"); break;
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleAction]);
 
   if (loading) {
     return (
@@ -140,6 +164,28 @@ export default function TriagePage() {
           />
         </div>
       </div>
+
+      {/* Keyboard shortcut hints */}
+      <div className="w-full max-w-lg mt-4 text-center text-xs text-muted">
+        <span className="opacity-70">Keyboard: </span>
+        <Kbd>d</Kbd> Done
+        <span className="mx-1.5">·</span>
+        <Kbd>r</Kbd> Reply
+        <span className="mx-1.5">·</span>
+        <Kbd>s</Kbd> Snooze
+        <span className="mx-1.5">·</span>
+        <Kbd>f</Kbd> FYI
+        <span className="mx-1.5">·</span>
+        <Kbd>1-5</Kbd> Categorize
+      </div>
     </div>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-block px-1.5 py-0.5 mx-0.5 rounded border border-border bg-surface font-mono text-[10px]">
+      {children}
+    </kbd>
   );
 }
